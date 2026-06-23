@@ -32,5 +32,5 @@ def scrape_tool(url : str) -> str:
     except Exception as e:
         print(f"Error occurred while scraping {url}: {str(e)}")
         return "Error occurred while scraping the URL."
-print(scrape_tool.invoke("https://www.hindustantimes.com/india-news/lucknow-fire-news-live-updates-aliganj-death-toll-police-firefighters-injured-cm-yogi-adityanath-up-101782129134023.html"))
+
 
