@@ -10,7 +10,6 @@ Run with:  streamlit run app.py
 """
 
 import re
-import time
 from datetime import datetime
 
 import streamlit as st
@@ -30,135 +29,161 @@ from agent import (
 st.set_page_config(
     page_title="Atlas · Research Agent",
     page_icon="◆",
-    layout="wide",
-    initial_sidebar_state="expanded",
+    layout="centered",
+    initial_sidebar_state="collapsed",
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Theme — deep-ink research console
+# Theme — grainy ink canvas, editorial serif
 # ──────────────────────────────────────────────────────────────────────────────
 st.markdown(
     """
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
     <style>
       :root {
-        --ink:      #0E1116;
-        --surface:  #161B22;
-        --surface2: #1B2129;
-        --line:     #222B36;
-        --text:     #E6EDF3;
-        --muted:    #8B98A5;
-        --signal:   #FFB454;   /* agent-active amber */
-        --cool:     #5AC8FA;   /* critic / score     */
-        --good:     #54D6A0;
+        --bg:      #0A0A0C;
+        --text:    #F4F2ED;   /* warm white          */
+        --muted:   #7C7C82;
+        --faint:   #4A4A50;
+        --line:    rgba(255,255,255,0.09);
+        --panel:   rgba(255,255,255,0.035);
+        --panel-l: rgba(255,255,255,0.08);
+        --signal:  #D9A066;   /* lone warm gold — functional only */
       }
 
-      .stApp { background: var(--ink); color: var(--text); }
-
-      /* Base type */
-      html, body, [class*="css"] {
-        font-family: 'Inter', system-ui, sans-serif;
+      /* Grainy, light-bled canvas */
+      .stApp {
         color: var(--text);
+        background:
+          radial-gradient(1100px 560px at 12% -12%, rgba(255,255,255,0.07), transparent 60%),
+          radial-gradient(900px 500px at 102% 112%, rgba(255,255,255,0.06), transparent 60%),
+          var(--bg);
+      }
+      .stApp::before {
+        content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+        opacity: 0.05; mix-blend-mode: screen;
       }
 
-      /* Kill default Streamlit chrome we don't want */
+      html, body, [class*="css"] { font-family: 'Inter', system-ui, sans-serif; color: var(--text); }
+
+      /* Strip Streamlit chrome + the whole sidebar */
       #MainMenu, header[data-testid="stHeader"], footer { visibility: hidden; }
-      .block-container { padding-top: 2.2rem; max-width: 1080px; }
+      section[data-testid="stSidebar"],
+      [data-testid="stSidebarCollapsedControl"] { display: none !important; }
 
-      h1, h2, h3, h4 { font-family: 'Space Grotesk', sans-serif; letter-spacing: -0.01em; }
+      .block-container { position: relative; z-index: 1; padding-top: 1.4rem; max-width: 760px; }
 
-      /* ── Masthead ───────────────────────────────────────────────── */
-      .masthead { border-bottom: 1px solid var(--line); padding-bottom: 1.4rem; margin-bottom: 1.8rem; }
-      .eyebrow {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 0.72rem; letter-spacing: 0.32em; text-transform: uppercase;
-        color: var(--signal); margin-bottom: 0.6rem;
+      /* ── Top bar ─────────────────────────────────────────────────── */
+      .topbar {
+        display: flex; align-items: center; justify-content: space-between;
+        padding-bottom: 2.4rem;
       }
-      .wordmark {
-        font-family: 'Space Grotesk', sans-serif; font-weight: 700;
-        font-size: 3.1rem; line-height: 1; margin: 0;
+      .brand { font-family: 'Instrument Serif', serif; font-size: 1.5rem; letter-spacing: 0.01em; }
+      .brand .acc { color: var(--signal); }
+      .status {
+        display: inline-flex; align-items: center; gap: 0.45rem;
+        font-family: 'JetBrains Mono', monospace; font-size: 0.68rem;
+        color: var(--muted); padding: 0.32rem 0.7rem;
+        border: 1px solid var(--line); border-radius: 999px;
       }
-      .wordmark .dot { color: var(--signal); }
-      .tagline { color: var(--muted); font-size: 1.02rem; margin-top: 0.7rem; max-width: 46ch; }
+      .status .dot { width: 6px; height: 6px; border-radius: 50%; }
+      .status .ok  { background: #6FCF97; }
+      .status .bad { background: #E06A6A; }
 
-      /* ── Stage trace ────────────────────────────────────────────── */
-      .stage {
-        display: flex; align-items: center; gap: 0.8rem;
-        font-family: 'JetBrains Mono', monospace; font-size: 0.86rem;
-        padding: 0.55rem 0; border-bottom: 1px dashed var(--line);
-        color: var(--muted);
+      /* ── Hero ────────────────────────────────────────────────────── */
+      .hero { text-align: center; margin: 1.4rem 0 2.2rem; }
+      .badge {
+        display: inline-flex; align-items: center; gap: 0.5rem;
+        font-family: 'JetBrains Mono', monospace; font-size: 0.66rem;
+        letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted);
+        padding: 0.35rem 0.9rem; border: 1px solid var(--line); border-radius: 999px;
+        margin-bottom: 1.6rem;
       }
-      .stage .num { color: var(--signal); width: 2.4rem; }
-      .stage.active { color: var(--text); }
-      .stage.active .num { color: var(--signal); }
-      .stage.done .num { color: var(--good); }
-
-      /* ── Score gauge ────────────────────────────────────────────── */
-      .gauge {
-        background: var(--surface); border: 1px solid var(--line);
-        border-radius: 14px; padding: 1.4rem 1.6rem; text-align: center;
+      .badge .g { color: var(--signal); }
+      .display {
+        font-family: 'Instrument Serif', serif; font-weight: 400;
+        font-size: clamp(2.8rem, 6vw, 4.4rem); line-height: 1.02;
+        letter-spacing: -0.01em; margin: 0;
       }
-      .gauge .val {
-        font-family: 'Space Grotesk', sans-serif; font-weight: 700;
-        font-size: 3.4rem; line-height: 1; color: var(--cool);
-      }
-      .gauge .val small { font-size: 1.2rem; color: var(--muted); font-weight: 500; }
-      .gauge .lbl {
-        font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;
-        letter-spacing: 0.24em; text-transform: uppercase; color: var(--muted);
-        margin-top: 0.5rem;
+      .display em { font-style: italic; color: var(--text); }
+      .sub {
+        color: var(--muted); font-size: 1.05rem; line-height: 1.6;
+        max-width: 100%; margin: 1.3rem auto 0;
       }
 
-      /* Cards / report surface */
-      .panel {
-        background: var(--surface); border: 1px solid var(--line);
-        border-radius: 14px; padding: 1.6rem 1.8rem;
+      /* ── Inputs ──────────────────────────────────────────────────── */
+      .stTextInput input {
+        background: var(--panel) !important; color: var(--text) !important;
+        border: 1px solid var(--panel-l) !important; border-radius: 14px !important;
+        font-family: 'Inter', sans-serif !important; font-size: 1.02rem !important;
+        padding: 0.95rem 1.1rem !important;
       }
-      .panel-title {
-        font-family: 'JetBrains Mono', monospace; font-size: 0.72rem;
-        letter-spacing: 0.24em; text-transform: uppercase; color: var(--signal);
-        margin-bottom: 1rem;
-      }
-
-      /* Inputs */
-      .stTextInput input, .stTextArea textarea {
-        background: var(--surface2) !important; color: var(--text) !important;
-        border: 1px solid var(--line) !important; border-radius: 10px !important;
-        font-family: 'Inter', sans-serif !important;
-      }
+      .stTextInput input::placeholder { color: var(--faint) !important; }
       .stTextInput input:focus { border-color: var(--signal) !important; box-shadow: none !important; }
 
-      /* Primary button */
-      .stButton > button {
-        background: var(--signal); color: #1a1205; border: none;
-        border-radius: 10px; font-weight: 600; font-family: 'Space Grotesk', sans-serif;
-        padding: 0.55rem 1.4rem; transition: transform .08s ease, filter .15s ease;
+      /* Primary action — warm-white pill */
+      .stButton button[kind="primary"] {
+        background: var(--text); color: #111; border: none;
+        border-radius: 14px; font-weight: 600; font-family: 'Inter', sans-serif;
+        height: 100%; min-height: 3.25rem; padding: 0 1.1rem;
+        transition: transform .08s ease, filter .15s ease;
       }
-      .stButton > button:hover { filter: brightness(1.06); transform: translateY(-1px); }
-      .stButton > button:active { transform: translateY(0); }
+      .stButton button[kind="primary"]:hover { filter: brightness(0.92); transform: translateY(-1px); }
+      .stButton button[kind="primary"]:active { transform: translateY(0); }
 
-      /* Expanders / status */
-      [data-testid="stExpander"] {
-        background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+      /* Chips — ghost pills */
+      .stButton button[kind="secondary"] {
+        background: transparent; color: var(--muted);
+        border: 1px solid var(--line); border-radius: 999px;
+        font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;
+        padding: 0.4rem 0.9rem; transition: color .15s ease, border-color .15s ease;
+      }
+      .stButton button[kind="secondary"]:hover { color: var(--text); border-color: var(--panel-l); }
+
+      /* Download — quiet outline */
+      [data-testid="stDownloadButton"] button {
+        background: transparent; color: var(--muted);
+        border: 1px solid var(--line); border-radius: 999px;
+        font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;
+      }
+      [data-testid="stDownloadButton"] button:hover { color: var(--text); border-color: var(--panel-l); }
+
+      /* ── Stage trace ─────────────────────────────────────────────── */
+      .stage {
+        display: flex; align-items: center; gap: 0.8rem;
+        font-family: 'JetBrains Mono', monospace; font-size: 0.84rem;
+        padding: 0.55rem 0; border-bottom: 1px dashed var(--line); color: var(--muted);
+      }
+      .stage .num { color: var(--faint); width: 2.4rem; }
+      .stage.active { color: var(--text); }
+      .stage.active .num, .stage.done .num { color: var(--signal); }
+
+      /* ── Report surfaces ─────────────────────────────────────────── */
+      .panel { background: var(--panel); border: 1px solid var(--panel-l); border-radius: 16px; padding: 1.6rem 1.8rem; }
+      .panel-title {
+        font-family: 'JetBrains Mono', monospace; font-size: 0.68rem;
+        letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted);
+        margin-bottom: 1rem;
+      }
+      .gauge { background: var(--panel); border: 1px solid var(--panel-l); border-radius: 16px; padding: 1.4rem 1.6rem; text-align: center; }
+      .gauge .val { font-family: 'Instrument Serif', serif; font-size: 3.6rem; line-height: 1; color: var(--signal); }
+      .gauge .val small { font-size: 1.2rem; color: var(--muted); }
+      .gauge .lbl {
+        font-family: 'JetBrains Mono', monospace; font-size: 0.66rem;
+        letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); margin-top: 0.5rem;
       }
 
-      /* Sidebar */
-      section[data-testid="stSidebar"] { background: #0B0E12; border-right: 1px solid var(--line); }
-      section[data-testid="stSidebar"] * { color: var(--text); }
+      [data-testid="stExpander"] { background: var(--panel); border: 1px solid var(--panel-l); border-radius: 14px; }
 
-      .pill {
-        display: inline-flex; align-items: center; gap: 0.4rem;
-        font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;
-        padding: 0.2rem 0.6rem; border-radius: 999px; border: 1px solid var(--line);
-        color: var(--muted);
+      a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+
+      @media (prefers-reduced-motion: reduce) {
+        .stButton button { transition: none !important; }
       }
-      .dot-ok  { width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
-      .dot-bad { width: 7px; height: 7px; border-radius: 50%; background: #ff6b6b; }
-
-      a { color: var(--cool); }
     </style>
     """,
     unsafe_allow_html=True,
@@ -264,53 +289,24 @@ def render_trace(container, statuses):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Sidebar
-# ──────────────────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown(
-        '<div style="font-family:Space Grotesk;font-weight:700;font-size:1.4rem;">'
-        'Atlas<span style="color:var(--signal)">.</span></div>',
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        '<div style="color:var(--muted);font-size:0.85rem;margin-bottom:1.2rem;">'
-        "Autonomous research agent</div>",
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("##### Pipeline")
-    st.markdown(
-        '<div style="font-family:JetBrains Mono;font-size:0.78rem;color:var(--muted);line-height:1.9">'
-        "01 · search the web<br>02 · scrape best source<br>"
-        "03 · synthesize report<br>04 · self-critique</div>",
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("---")
-    st.markdown("##### Environment")
-    for name, ok in keys_present().items():
-        dot = "dot-ok" if ok else "dot-bad"
-        state_txt = "loaded" if ok else "missing"
-        st.markdown(
-            f'<div class="pill" style="margin-bottom:6px"><span class="{dot}"></span>'
-            f"{name} · {state_txt}</div>",
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("---")
-    st.caption("Model · open-mistral-7b  ·  Search · Tavily")
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Masthead
+# Top bar — brand only (sidebar removed)
 # ──────────────────────────────────────────────────────────────────────────────
 st.markdown(
     """
-    <div class="masthead">
-      <div class="eyebrow">Multi-stage research agent</div>
-      <h1 class="wordmark">Atlas<span class="dot">.</span></h1>
-      <p class="tagline">Give it a topic. It searches the web, reads the best source,
-      writes a structured report, then grades its own work — and shows you every step.</p>
+    <div class="topbar">
+      <div class="brand">Atlas<span class="acc">.</span></div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ── Hero ──────────────────────────────────────────────────────────────────────
+st.markdown(
+    """
+    <div class="hero">
+      <h1 class="display">Ask anything.<br><em>Atlas does the reading.</em></h1>
+      <p class="sub">It searches the open web, reads the best source in depth,
+      writes a structured report — then grades its own work, and shows you every step.</p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -323,23 +319,29 @@ if "result" not in st.session_state:
     st.session_state.ran_at = None
 
 # ── Input ─────────────────────────────────────────────────────────────────────
-col_in, col_btn = st.columns([5, 1])
+col_in, col_btn = st.columns([5, 1.4])
 with col_in:
     topic = st.text_input(
         "Research topic",
-        placeholder="e.g.  The economics of small modular nuclear reactors",
+        placeholder="What should Atlas research?",
         label_visibility="collapsed",
     )
 with col_btn:
-    run = st.button("Research →", use_container_width=True)
+    run = st.button("Research →", type="primary", use_container_width=True)
 
 missing = [k for k, ok in keys_present().items() if not ok]
 
-# ── Run ───────────────────────────────────────────────────────────────────────
+# Resolve which topic (if any) to research this run
+topic_to_run = None
 if run:
-    if not topic or not topic.strip():
+    if topic and topic.strip():
+        topic_to_run = topic.strip()
+    else:
         st.warning("Enter a topic to research.")
-    elif missing:
+
+# ── Run ───────────────────────────────────────────────────────────────────────
+if topic_to_run:
+    if missing:
         st.error(
             "Can't start — these API keys aren't loaded: "
             + ", ".join(missing)
@@ -347,7 +349,7 @@ if run:
         )
     else:
         statuses = ["idle"] * len(STAGES)
-        st.markdown('<div class="panel-title" style="margin-top:1.4rem">Agent trace</div>',
+        st.markdown('<div class="panel-title" style="margin-top:1.8rem">Agent trace</div>',
                     unsafe_allow_html=True)
         trace = st.empty()
         render_trace(trace, statuses)
@@ -358,9 +360,9 @@ if run:
 
         try:
             with st.spinner("Agent working…"):
-                result = run_research(topic.strip(), trace, on_stage)
+                result = run_research(topic_to_run, trace, on_stage)
             st.session_state.result = result
-            st.session_state.topic = topic.strip()
+            st.session_state.topic = topic_to_run
             st.session_state.ran_at = datetime.now().strftime("%b %d, %Y · %H:%M")
         except Exception as e:  # surface real failures instead of a blank screen
             st.error(f"The agent hit an error: {e}")
